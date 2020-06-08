@@ -18,10 +18,13 @@
 #include "php_hash_md.h"
 
 const php_hash_ops php_hash_md5_ops = {
+	"md5",
 	(php_hash_init_func_t) PHP_MD5Init,
 	(php_hash_update_func_t) PHP_MD5Update,
 	(php_hash_final_func_t) PHP_MD5Final,
 	(php_hash_copy_func_t) php_hash_copy,
+	php_hash_serialize,
+	php_hash_unserialize,
 	16,
 	64,
 	sizeof(PHP_MD5_CTX),
@@ -29,10 +32,13 @@ const php_hash_ops php_hash_md5_ops = {
 };
 
 const php_hash_ops php_hash_md4_ops = {
+        "md4",
 	(php_hash_init_func_t) PHP_MD4Init,
 	(php_hash_update_func_t) PHP_MD4Update,
 	(php_hash_final_func_t) PHP_MD4Final,
 	(php_hash_copy_func_t) php_hash_copy,
+	php_hash_serialize,
+	php_hash_unserialize,
 	16,
 	64,
 	sizeof(PHP_MD4_CTX),
@@ -40,10 +46,13 @@ const php_hash_ops php_hash_md4_ops = {
 };
 
 const php_hash_ops php_hash_md2_ops = {
+        "md2",
 	(php_hash_init_func_t) PHP_MD2Init,
 	(php_hash_update_func_t) PHP_MD2Update,
 	(php_hash_final_func_t) PHP_MD2Final,
 	(php_hash_copy_func_t) php_hash_copy,
+	php_hash_serialize,
+	php_hash_unserialize,
 	16,
 	16,
 	sizeof(PHP_MD2_CTX),

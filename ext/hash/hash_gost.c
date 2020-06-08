@@ -305,10 +305,13 @@ PHP_HASH_API void PHP_GOSTFinal(unsigned char digest[32], PHP_GOST_CTX *context)
 }
 
 const php_hash_ops php_hash_gost_ops = {
+	"gost",
 	(php_hash_init_func_t) PHP_GOSTInit,
 	(php_hash_update_func_t) PHP_GOSTUpdate,
 	(php_hash_final_func_t) PHP_GOSTFinal,
 	(php_hash_copy_func_t) php_hash_copy,
+	php_hash_serialize,
+	php_hash_unserialize,
 	32,
 	32,
 	sizeof(PHP_GOST_CTX),
@@ -316,10 +319,13 @@ const php_hash_ops php_hash_gost_ops = {
 };
 
 const php_hash_ops php_hash_gost_crypto_ops = {
+        "gost-crypto",
 	(php_hash_init_func_t) PHP_GOSTInitCrypto,
 	(php_hash_update_func_t) PHP_GOSTUpdate,
 	(php_hash_final_func_t) PHP_GOSTFinal,
 	(php_hash_copy_func_t) php_hash_copy,
+	php_hash_serialize,
+	php_hash_unserialize,
 	32,
 	32,
 	sizeof(PHP_GOST_CTX),

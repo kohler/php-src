@@ -220,10 +220,13 @@ void PHP_SHA3##bits##Final(unsigned char* digest, \
                    bits >> 3); \
 } \
 const php_hash_ops php_hash_sha3_##bits##_ops = { \
+        "sha3-" #bits, \
 	(php_hash_init_func_t) PHP_SHA3##bits##Init, \
 	(php_hash_update_func_t) PHP_SHA3##bits##Update, \
 	(php_hash_final_func_t) PHP_SHA3##bits##Final, \
 	php_hash_copy, \
+	php_hash_serialize, \
+	php_hash_unserialize, \
 	bits >> 3, \
 	(1600 - (2 * bits)) >> 3, \
 	sizeof(PHP_SHA3_##bits##_CTX), \
@@ -234,6 +237,7 @@ const php_hash_ops php_hash_sha3_##bits##_ops = { \
 
 // ================= fast algo ==============================================
 
+#include "zend_smart_str.h"
 #define SUCCESS SHA3_SUCCESS /* Avoid conflict between KeccacHash.h and zend_types.h */
 #include "KeccakHash.h"
 
@@ -245,6 +249,26 @@ static int hash_sha3_copy(const void *ops, void *orig_context, void *dest_contex
 	PHP_SHA3_CTX* orig = (PHP_SHA3_CTX*)orig_context;
 	PHP_SHA3_CTX* dest = (PHP_SHA3_CTX*)dest_context;
 	memcpy(dest->hashinstance, orig->hashinstance, sizeof(Keccak_HashInstance));
+	return SUCCESS;
+}
+
+static int hash_sha3_serialize(const php_hashcontext_object *context, zend_long *magic, zval *zv)
+{
+	PHP_SHA3_CTX* ctx = (PHP_SHA3_CTX*)context->context;
+	*magic = PHP_HASH_SERIALIZE_MAGIC;
+	ZVAL_STRINGL(zv, (const char *) ctx->hashinstance, sizeof(Keccak_HashInstance));
+	return SUCCESS;
+}
+
+static int hash_sha3_unserialize(php_hashcontext_object *context, zend_long magic, const zval *zv)
+{
+	PHP_SHA3_CTX* ctx = (PHP_SHA3_CTX*)context->context;
+	if (Z_TYPE_P(zv) != IS_STRING
+		|| Z_STRLEN_P(zv) != sizeof(Keccak_HashInstance)
+		|| magic != PHP_HASH_SERIALIZE_MAGIC) {
+		return FAILURE;
+	}
+	memcpy(ctx->hashinstance, Z_STRVAL_P(zv), sizeof(Keccak_HashInstance));
 	return SUCCESS;
 }
 
@@ -265,10 +289,13 @@ void PHP_SHA3##bits##Final(unsigned char* digest, \
 	ctx->hashinstance = NULL; \
 } \
 const php_hash_ops php_hash_sha3_##bits##_ops = { \
+	"sha3-" #bits, \
 	(php_hash_init_func_t) PHP_SHA3##bits##Init, \
 	(php_hash_update_func_t) PHP_SHA3##bits##Update, \
 	(php_hash_final_func_t) PHP_SHA3##bits##Final, \
 	hash_sha3_copy, \
+	hash_sha3_serialize, \
+	hash_sha3_unserialize, \
 	bits >> 3, \
 	(1600 - (2 * bits)) >> 3, \
 	sizeof(PHP_SHA3_##bits##_CTX), \

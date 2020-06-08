@@ -25,18 +25,31 @@
 
 #define PHP_HASH_HMAC		0x0001
 
+#ifdef WORDS_BIGENDIAN
+#define PHP_HASH_SERIALIZE_MAGIC 1
+#else
+#define PHP_HASH_SERIALIZE_MAGIC 0
+#endif
+
 #define L64 INT64_C
+
+typedef struct _php_hashcontext_object php_hashcontext_object;
 
 typedef void (*php_hash_init_func_t)(void *context);
 typedef void (*php_hash_update_func_t)(void *context, const unsigned char *buf, size_t count);
 typedef void (*php_hash_final_func_t)(unsigned char *digest, void *context);
 typedef int  (*php_hash_copy_func_t)(const void *ops, void *orig_context, void *dest_context);
+typedef int  (*php_hash_serialize_func_t)(const php_hashcontext_object *hash, zend_long *magic, zval *zv);
+typedef int  (*php_hash_unserialize_func_t)(php_hashcontext_object *hash, zend_long magic, const zval *zv);
 
 typedef struct _php_hash_ops {
+        const char* algo;
 	php_hash_init_func_t hash_init;
 	php_hash_update_func_t hash_update;
 	php_hash_final_func_t hash_final;
 	php_hash_copy_func_t hash_copy;
+        php_hash_serialize_func_t hash_serialize;
+        php_hash_unserialize_func_t hash_unserialize;
 
 	size_t digest_size;
 	size_t block_size;
@@ -44,7 +57,7 @@ typedef struct _php_hash_ops {
 	unsigned is_crypto: 1;
 } php_hash_ops;
 
-typedef struct _php_hashcontext_object {
+struct _php_hashcontext_object {
 	const php_hash_ops *ops;
 	void *context;
 
@@ -52,7 +65,7 @@ typedef struct _php_hashcontext_object {
 	unsigned char *key;
 
 	zend_object std;
-} php_hashcontext_object;
+};
 
 static inline php_hashcontext_object *php_hashcontext_from_object(zend_object *obj) {
 	return ((php_hashcontext_object*)(obj + 1)) - 1;
@@ -131,6 +144,8 @@ extern PHP_HASH_API zend_class_entry *php_hashcontext_ce;
 PHP_HASH_API const php_hash_ops *php_hash_fetch_ops(zend_string *algo);
 PHP_HASH_API void php_hash_register_algo(const char *algo, const php_hash_ops *ops);
 PHP_HASH_API int php_hash_copy(const void *ops, void *orig_context, void *dest_context);
+PHP_HASH_API int php_hash_serialize(const php_hashcontext_object *context, zend_long *magic, zval *zv);
+PHP_HASH_API int php_hash_unserialize(php_hashcontext_object *context, zend_long magic, const zval *zv);
 
 static inline void php_hash_bin2hex(char *out, const unsigned char *in, size_t in_len)
 {

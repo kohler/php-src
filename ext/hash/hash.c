@@ -23,9 +23,12 @@
 #include "php_hash.h"
 #include "ext/standard/info.h"
 #include "ext/standard/file.h"
+#include "ext/standard/php_var.h"
+#include "ext/spl/spl_exceptions.h"
 
 #include "zend_interfaces.h"
 #include "zend_exceptions.h"
+#include "zend_smart_str.h"
 
 #include "hash_arginfo.h"
 
@@ -107,6 +110,26 @@ PHP_HASH_API int php_hash_copy(const void *ops, void *orig_context, void *dest_c
 	php_hash_ops *hash_ops = (php_hash_ops *)ops;
 
 	memcpy(dest_context, orig_context, hash_ops->context_size);
+	return SUCCESS;
+}
+/* }}} */
+
+PHP_HASH_API int php_hash_serialize(const php_hashcontext_object *context, zend_long *magic, zval *zv) /* {{{ */
+{
+	*magic = PHP_HASH_SERIALIZE_MAGIC;
+	ZVAL_STRINGL(zv, (const char *) context->context, context->ops->context_size);
+	return SUCCESS;
+}
+/* }}} */
+
+PHP_HASH_API int php_hash_unserialize(php_hashcontext_object *context, zend_long magic, const zval *zv) /* {{{ */
+{
+	if (Z_TYPE_P(zv) != IS_STRING
+		|| Z_STRLEN_P(zv) != context->ops->context_size
+		|| magic != PHP_HASH_SERIALIZE_MAGIC) {
+		return FAILURE;
+	}
+	memcpy(context->context, Z_STRVAL_P(zv), context->ops->context_size);
 	return SUCCESS;
 }
 /* }}} */
@@ -1170,6 +1193,145 @@ static zend_object *php_hashcontext_clone(zend_object *zobj) {
 }
 /* }}} */
 
+/* Serialization format: 5- or 6-element array
+   Index 0: hash algorithm (string)
+   Index 1: options (long, 0 or PHP_HASH_HMAC)
+   Index 2: hash-determined serialization of internal state (mixed, usually string)
+   Index 3: magic number defining layout of internal state (long)
+   Index 4: properties (array)
+   Index 5: key (string, only if PHP_HASH_HMAC)
+
+   Most HashContext serializations are not portable between architectures or
+   PHP versions. If the format of a serialized hash context changes, that should
+   be reflected in either a different value of `magic` or a different length of
+   the serialized context string. A particular hash algorithm can make its
+   HashContext serialization portable by parsing different representations in
+   its custom `hash_unserialize` method. */
+
+/* {{{ proto array HashContext::__serialize()
+   Serialize the object */
+PHP_METHOD(HashContext, __serialize)
+{
+	zval *object = ZEND_THIS;
+	php_hashcontext_object *hash = php_hashcontext_from_object(Z_OBJ_P(object));
+	zend_long magic = 0;
+	zval tmp;
+
+	if (zend_parse_parameters_none() == FAILURE) {
+		RETURN_THROWS();
+	}
+
+	array_init(return_value);
+
+	if (!hash->ops->hash_serialize) {
+		goto serialize_failure;
+	}
+
+	ZVAL_STRING(&tmp, hash->ops->algo);
+	zend_hash_next_index_insert(Z_ARRVAL_P(return_value), &tmp);
+
+	ZVAL_LONG(&tmp, hash->options);
+	zend_hash_next_index_insert(Z_ARRVAL_P(return_value), &tmp);
+
+	if (hash->ops->hash_serialize(hash, &magic, &tmp) != SUCCESS) {
+		goto serialize_failure;
+	}
+	zend_hash_next_index_insert(Z_ARRVAL_P(return_value), &tmp);
+
+	ZVAL_LONG(&tmp, magic);
+	zend_hash_next_index_insert(Z_ARRVAL_P(return_value), &tmp);
+
+	/* members */
+	ZVAL_ARR(&tmp, zend_std_get_properties(&hash->std));
+	Z_TRY_ADDREF(tmp);
+	zend_hash_next_index_insert(Z_ARRVAL_P(return_value), &tmp);
+
+	if (hash->options & PHP_HASH_HMAC) {
+		ZVAL_STRINGL(&tmp, (const char *) hash->key, hash->ops->block_size);
+		zend_hash_next_index_insert(Z_ARRVAL_P(return_value), &tmp);
+	}
+
+	return;
+
+serialize_failure:
+	zend_throw_exception_ex(spl_ce_UnexpectedValueException, 0, "HashContext for algorithm '%s' cannot be serialized", hash->ops->algo);
+	RETURN_THROWS();
+}
+/* }}} */
+
+/* {{{ proto void HashContext::__unserialize(array serialized)
+ * unserialize the object
+ */
+PHP_METHOD(HashContext, __unserialize)
+{
+	zval *object = ZEND_THIS;
+	php_hashcontext_object *hash = php_hashcontext_from_object(Z_OBJ_P(object));
+	HashTable *data;
+	zval *algo_zv, *magic_zv, *options_zv, *hash_zv, *members_zv, *key_zv;
+	zend_long magic, options;
+	const php_hash_ops *ops;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "h", &data) == FAILURE) {
+		RETURN_THROWS();
+	}
+
+	if (hash->context) {
+		zend_throw_exception(spl_ce_LogicException, "HashContext::__unserialize called on initialized object", 0);
+		RETURN_THROWS();
+	}
+
+	algo_zv = zend_hash_index_find(data, 0);
+	options_zv = zend_hash_index_find(data, 1);
+	hash_zv = zend_hash_index_find(data, 2);
+	magic_zv = zend_hash_index_find(data, 3);
+	members_zv = zend_hash_index_find(data, 4);
+	key_zv = zend_hash_index_find(data, 5);
+
+	if (!algo_zv || Z_TYPE_P(algo_zv) != IS_STRING
+		|| !magic_zv || Z_TYPE_P(magic_zv) != IS_LONG
+		|| !options_zv || Z_TYPE_P(options_zv) != IS_LONG
+		|| !hash_zv
+		|| !members_zv || Z_TYPE_P(members_zv) != IS_ARRAY) {
+		zend_throw_exception_ex(spl_ce_UnexpectedValueException, 0, "Incomplete or ill-formed serialization data");
+		RETURN_THROWS();
+	}
+
+	magic = zval_get_long(magic_zv);
+	options = zval_get_long(options_zv);
+
+	ops = php_hash_fetch_ops(Z_STR_P(algo_zv));
+	if (!ops) {
+		zend_throw_exception(spl_ce_UnexpectedValueException, "Unknown hash algorithm", 0);
+		RETURN_THROWS();
+	} else if (!ops->hash_unserialize) {
+		zend_throw_exception_ex(spl_ce_UnexpectedValueException, 0, "Hash algorithm '%s' cannot be unserialized", ops->algo);
+		RETURN_THROWS();
+	} else if ((options & PHP_HASH_HMAC)
+			&& (!key_zv || Z_TYPE_P(key_zv) != IS_STRING
+				|| Z_STRLEN_P(key_zv) != ops->block_size)) {
+		zend_throw_exception(spl_ce_UnexpectedValueException, "Incomplete or ill-formed serialization data", 0);
+		RETURN_THROWS();
+	}
+
+	hash->ops = ops;
+	hash->context = emalloc(ops->context_size);
+	ops->hash_init(hash->context);
+	hash->options = zval_get_long(options_zv);
+
+	if (ops->hash_unserialize(hash, magic, hash_zv) != SUCCESS) {
+		zend_throw_exception_ex(spl_ce_UnexpectedValueException, 0, "HashContext for algorithm '%s' cannot be unserialized, format may be non-portable", ops->algo);
+		RETURN_THROWS();
+	}
+
+	if (options & PHP_HASH_HMAC) {
+		hash->key = (unsigned char *) emalloc(ops->block_size);
+		memcpy(hash->key, Z_STRVAL_P(key_zv), ops->block_size);
+	}
+
+	object_properties_load(&hash->std, Z_ARRVAL_P(members_zv));
+}
+/* }}} */
+
 /* {{{ PHP_MINIT_FUNCTION
  */
 PHP_MINIT_FUNCTION(hash)
@@ -1241,8 +1403,6 @@ PHP_MINIT_FUNCTION(hash)
 	php_hashcontext_ce = zend_register_internal_class(&ce);
 	php_hashcontext_ce->ce_flags |= ZEND_ACC_FINAL;
 	php_hashcontext_ce->create_object = php_hashcontext_create;
-	php_hashcontext_ce->serialize = zend_class_serialize_deny;
-	php_hashcontext_ce->unserialize = zend_class_unserialize_deny;
 
 	memcpy(&php_hashcontext_handlers, &std_object_handlers,
 	       sizeof(zend_object_handlers));

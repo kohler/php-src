@@ -241,10 +241,13 @@ PHP_HASH_API void PHP_TIGER192Final(unsigned char digest[24], PHP_TIGER_CTX *con
 
 #define PHP_HASH_TIGER_OPS(p, b) \
 	const php_hash_ops php_hash_##p##tiger##b##_ops = { \
+		"tiger" #b "," #p, \
 		(php_hash_init_func_t) PHP_##p##TIGERInit, \
 		(php_hash_update_func_t) PHP_TIGERUpdate, \
 		(php_hash_final_func_t) PHP_TIGER##b##Final, \
-		(php_hash_copy_func_t) php_hash_copy, \
+		php_hash_copy, \
+		php_hash_serialize, \
+		php_hash_unserialize, \
 		b/8, \
 		64, \
 		sizeof(PHP_TIGER_CTX), \

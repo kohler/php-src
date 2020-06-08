@@ -77,11 +77,33 @@ PHP_HASH_API int PHP_CRC32Copy(const php_hash_ops *ops, PHP_CRC32_CTX *orig_cont
 	return SUCCESS;
 }
 
+static int crc32_serialize(const php_hashcontext_object *hash, zend_long *magic, zval *zv)
+{
+        PHP_CRC32_CTX *context = (PHP_CRC32_CTX *) hash->context;
+        *magic = 0;
+        ZVAL_LONG(zv, context->state);
+        return SUCCESS;
+}
+
+static int crc32_unserialize(php_hashcontext_object *hash, zend_long magic, const zval *zv)
+{
+        PHP_CRC32_CTX *context = (PHP_CRC32_CTX *) hash->context;
+        if (Z_TYPE_P(zv) != IS_LONG || magic != 0) {
+                return FAILURE;
+        }
+        context->state = zval_get_long((zval *) zv);
+        return SUCCESS;
+
+}
+
 const php_hash_ops php_hash_crc32_ops = {
+        "crc32",
 	(php_hash_init_func_t) PHP_CRC32Init,
 	(php_hash_update_func_t) PHP_CRC32Update,
 	(php_hash_final_func_t) PHP_CRC32LEFinal,
 	(php_hash_copy_func_t) PHP_CRC32Copy,
+        crc32_serialize,
+        crc32_unserialize,
 	4, /* what to say here? */
 	4,
 	sizeof(PHP_CRC32_CTX),
@@ -89,10 +111,13 @@ const php_hash_ops php_hash_crc32_ops = {
 };
 
 const php_hash_ops php_hash_crc32b_ops = {
+        "crc32b",
 	(php_hash_init_func_t) PHP_CRC32Init,
 	(php_hash_update_func_t) PHP_CRC32BUpdate,
 	(php_hash_final_func_t) PHP_CRC32BEFinal,
 	(php_hash_copy_func_t) PHP_CRC32Copy,
+        crc32_serialize,
+        crc32_unserialize,
 	4, /* what to say here? */
 	4,
 	sizeof(PHP_CRC32_CTX),
@@ -100,10 +125,13 @@ const php_hash_ops php_hash_crc32b_ops = {
 };
 
 const php_hash_ops php_hash_crc32c_ops = {
+        "crc32c",
 	(php_hash_init_func_t) PHP_CRC32Init,
 	(php_hash_update_func_t) PHP_CRC32CUpdate,
 	(php_hash_final_func_t) PHP_CRC32BEFinal,
 	(php_hash_copy_func_t) PHP_CRC32Copy,
+        crc32_serialize,
+        crc32_unserialize,
 	4, /* what to say here? */
 	4,
 	sizeof(PHP_CRC32_CTX),
